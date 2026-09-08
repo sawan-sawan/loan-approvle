@@ -1,5 +1,4 @@
 from pathlib import Path
-import os
 
 import joblib
 import pandas as pd
@@ -10,7 +9,10 @@ from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model" / "loan_model.pkl"
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "https://loan-approvle.vercel.app",
+]
 
 app = FastAPI(
     title="Loan Approval Prediction API",
@@ -20,7 +22,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
