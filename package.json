@@ -1,0 +1,11 @@
+{
+  "name": "loan-approval-project",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "backend": "cd backend && .venv/bin/uvicorn main:app --reload --host 127.0.0.1 --port 8000",
+    "frontend": "npm --prefix frontend run dev -- --port 5173",
+    "dev": "sh -c 'npm run backend & BACKEND_PID=$!; npm run frontend & FRONTEND_PID=$!; trap \"kill $BACKEND_PID $FRONTEND_PID 2>/dev/null\" INT TERM EXIT; wait $BACKEND_PID $FRONTEND_PID'",
+    "start": "npm run dev"
+  }
+}
