@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model" / "loan_model.pkl"
 ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
     "https://loan-approvle.vercel.app",
 ]
 
@@ -32,15 +33,11 @@ model = joblib.load(MODEL_PATH) if MODEL_PATH.exists() else None
 
 
 class LoanApplication(BaseModel):
-    age: int = Field(ge=18, le=80)
     applicant_income: float = Field(gt=0)
-    coapplicant_income: float = Field(ge=0)
     loan_amount: float = Field(gt=0)
     loan_term: int = Field(gt=0)
     credit_history: str
     employment_status: str
-    dependents: int = Field(ge=0, le=10)
-    property_area: str
 
 
 @app.get("/health")
@@ -60,15 +57,11 @@ def predict_loan(application: LoanApplication):
         )
 
     row = pd.DataFrame([{
-        "Age": application.age,
         "Applicant_Income": application.applicant_income,
-        "Coapplicant_Income": application.coapplicant_income,
         "Loan_Amount": application.loan_amount,
         "Loan_Term": application.loan_term,
         "Credit_History": application.credit_history,
         "Employment_Status": application.employment_status,
-        "Dependents": application.dependents,
-        "Property_Area": application.property_area,
     }])
 
     prediction = model.predict(row)[0]
@@ -83,5 +76,5 @@ def predict_loan(application: LoanApplication):
         "prediction": prediction,
         "approval_probability": probability_map.get("Approved", 0.0),
         "rejection_probability": probability_map.get("Rejected", 0.0),
-        "note": "Educational prediction based on synthetic mock data, not a real HDFC decision.",
+        "note": "Educational prediction based on synthetic mock data, not a real bank decision.",
     }

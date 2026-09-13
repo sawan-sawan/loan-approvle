@@ -1,10 +1,13 @@
 from pathlib import Path
 import json
+import warnings
+
 import joblib
 import pandas as pd
 
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split
@@ -23,18 +26,14 @@ X = df.drop(columns=["Loan_ID", "Loan_Status"])
 y = df["Loan_Status"]
 
 numeric_features = [
-    "Age",
     "Applicant_Income",
-    "Coapplicant_Income",
     "Loan_Amount",
     "Loan_Term",
-    "Dependents",
 ]
 
 categorical_features = [
     "Credit_History",
     "Employment_Status",
-    "Property_Area",
 ]
 
 preprocessor = ColumnTransformer(
@@ -44,15 +43,10 @@ preprocessor = ColumnTransformer(
     ]
 )
 
-models = {
-    "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
-    "Random Forest": RandomForestClassifier(
-        n_estimators=250,
-        max_depth=8,
-        random_state=42,
-        class_weight="balanced",
-    ),
-}
+pipeline = Pipeline([
+    ("preprocess", preprocessor),
+    ("model", LogisticRegression(max_iter=1000, random_state=42)),
+])
 
 X_train, X_test, y_train, y_test = train_test_split(
     X,
@@ -62,45 +56,28 @@ X_train, X_test, y_train, y_test = train_test_split(
     stratify=y,
 )
 
-results = {}
-best_name = None
-best_pipeline = None
-best_f1 = -1.0
+pipeline.fit(X_train, y_train)
+predictions = pipeline.predict(X_test)
 
-for name, estimator in models.items():
-    pipeline = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", estimator),
-    ])
-
-    pipeline.fit(X_train, y_train)
-    predictions = pipeline.predict(X_test)
-
-    metrics = {
-        "accuracy": round(float(accuracy_score(y_test, predictions)), 4),
-        "precision": round(float(precision_score(
-            y_test, predictions, pos_label="Approved", zero_division=0
-        )), 4),
-        "recall": round(float(recall_score(
-            y_test, predictions, pos_label="Approved", zero_division=0
-        )), 4),
-        "f1": round(float(f1_score(
-            y_test, predictions, pos_label="Approved", zero_division=0
-        )), 4),
-    }
-    results[name] = metrics
-
-    if metrics["f1"] > best_f1:
-        best_f1 = metrics["f1"]
-        best_name = name
-        best_pipeline = pipeline
+metrics = {
+    "accuracy": round(float(accuracy_score(y_test, predictions)), 4),
+    "precision": round(float(precision_score(
+        y_test, predictions, pos_label="Approved", zero_division=0
+    )), 4),
+    "recall": round(float(recall_score(
+        y_test, predictions, pos_label="Approved", zero_division=0
+    )), 4),
+    "f1": round(float(f1_score(
+        y_test, predictions, pos_label="Approved", zero_division=0
+    )), 4),
+}
 
 MODEL_DIR.mkdir(exist_ok=True)
-joblib.dump(best_pipeline, MODEL_PATH)
+joblib.dump(pipeline, MODEL_PATH)
 
 output = {
-    "best_model": best_name,
-    "models": results,
+    "model": "Logistic Regression",
+    "metrics": metrics,
     "dataset_rows": len(df),
 }
 METRICS_PATH.write_text(json.dumps(output, indent=2), encoding="utf-8")
