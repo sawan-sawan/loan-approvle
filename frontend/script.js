@@ -1,183 +1,272 @@
-const API_URL = "http://127.0.0.1:8000/predict";
+/* Loan Approval Prediction UI behaviour + FastAPI integration */
+(function () {
+  'use strict';
 
-const form = document.getElementById("loan-form");
-const submitBtn = document.getElementById("submit-btn");
+  var API_URL = 'http://127.0.0.1:8000/predict';
+  var FIELDS = ['income', 'employment', 'amount', 'term', 'area'];
+  var ANNUAL_RATE = 0.0875;
 
-const resultInitial = document.getElementById("result-initial");
-const resultPending = document.getElementById("result-pending");
-const resultFinal = document.getElementById("result-final");
-const resultError = document.getElementById("result-error");
+  var state = { credit: '', running: false };
 
-const resultIcon = document.getElementById("result-icon");
-const resultTitle = document.getElementById("result-title");
-const probabilityValue = document.getElementById("probability-value");
-const progressFill = document.getElementById("progress-fill");
-
-const summaryIncome = document.getElementById("summary-income");
-const summaryAmount = document.getElementById("summary-amount");
-const summaryCredit = document.getElementById("summary-credit");
-const summaryEmployment = document.getElementById("summary-employment");
-
-const FIELD_NAMES = [
-  "applicant_income",
-  "loan_amount",
-  "loan_term",
-  "credit_history",
-  "employment_status",
-];
-
-function getInputWrapper(fieldName) {
-  const inputEl = document.getElementById(fieldName);
-  const prefixWrapper = inputEl.closest(".input-prefix");
-  return prefixWrapper || inputEl;
-}
-
-function setError(fieldName, message) {
-  const errorEl = document.getElementById(`err-${fieldName}`);
-  const inputEl = document.getElementById(fieldName);
-  const wrapper = getInputWrapper(fieldName);
-
-  errorEl.textContent = message;
-  inputEl.classList.toggle("invalid", Boolean(message));
-  wrapper.classList.toggle("invalid", Boolean(message));
-}
-
-function clearErrors() {
-  FIELD_NAMES.forEach((name) => setError(name, ""));
-}
-
-function formatCurrency(value) {
-  const number = Number(value);
-  return `₹${number.toLocaleString("en-IN")}`;
-}
-
-function validateForm(data) {
-  let isValid = true;
-
-  if (!data.applicant_income || Number(data.applicant_income) <= 0) {
-    setError(
-      "applicant_income",
-      !data.applicant_income
-        ? "Please enter applicant income."
-        : "Loan income must be greater than 0."
-    );
-    isValid = false;
-  }
-
-  if (!data.loan_amount || Number(data.loan_amount) <= 0) {
-    setError(
-      "loan_amount",
-      !data.loan_amount
-        ? "Please enter loan amount."
-        : "Loan amount must be greater than 0."
-    );
-    isValid = false;
-  }
-
-  if (!data.loan_term) {
-    setError("loan_term", "Please select a loan term.");
-    isValid = false;
-  }
-
-  if (!data.credit_history) {
-    setError("credit_history", "Please select credit history.");
-    isValid = false;
-  }
-
-  if (!data.employment_status) {
-    setError("employment_status", "Please select employment status.");
-    isValid = false;
-  }
-
-  return isValid;
-}
-
-function showState(state) {
-  [resultInitial, resultPending, resultFinal, resultError].forEach((el) => {
-    el.classList.add("hidden");
-  });
-  state.classList.remove("hidden");
-}
-
-function clearFieldErrorOnInput(fieldName) {
-  const inputEl = document.getElementById(fieldName);
-  const eventName = inputEl.tagName === "SELECT" ? "change" : "input";
-
-  inputEl.addEventListener(eventName, () => {
-    const value = inputEl.value;
-    const hasValue =
-      inputEl.type === "number" ? Number(value) > 0 : Boolean(value);
-
-    if (hasValue) {
-      setError(fieldName, "");
+  var el = {
+    form: document.getElementById('loanForm'),
+    income: document.getElementById('income'),
+    employment: document.getElementById('employment'),
+    amount: document.getElementById('amount'),
+    term: document.getElementById('term'),
+    area: document.getElementById('area'),
+    incomeHint: document.getElementById('incomeHint'),
+    amountHint: document.getElementById('amountHint'),
+    progressFill: document.getElementById('progressFill'),
+    progressPct: document.getElementById('progressPct'),
+    submitBtn: document.getElementById('submitBtn'),
+    resetBtn: document.getElementById('resetBtn'),
+    resultCard: document.getElementById('resultCard'),
+    resultEmpty: document.getElementById('resultEmpty'),
+    resultBody: document.getElementById('resultBody'),
+    gaugeArc: document.getElementById('gaugeArc'),
+    confidenceValue: document.getElementById('confidenceValue'),
+    verdictPill: document.getElementById('verdictPill'),
+    verdictNote: document.getElementById('verdictNote'),
+    emiLine: document.getElementById('emiLine'),
+    choices: Array.prototype.slice.call(document.querySelectorAll('.choice')),
+    sum: {
+      income: document.getElementById('sumIncome'),
+      amount: document.getElementById('sumAmount'),
+      term: document.getElementById('sumTerm'),
+      employment: document.getElementById('sumEmployment'),
+      area: document.getElementById('sumArea'),
+      credit: document.getElementById('sumCredit')
     }
-  });
-}
-
-FIELD_NAMES.forEach(clearFieldErrorOnInput);
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  clearErrors();
-
-  const formData = new FormData(form);
-  const data = Object.fromEntries(formData.entries());
-
-  if (!validateForm(data)) {
-    return;
-  }
-
-  const payload = {
-    applicant_income: Number(data.applicant_income),
-    loan_amount: Number(data.loan_amount),
-    loan_term: Number(data.loan_term),
-    credit_history: data.credit_history,
-    employment_status: data.employment_status,
   };
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = "Checking eligibility...";
-  showState(resultPending);
+  var countTimer = null;
+  var LABELS = {
+    salaried: 'Salaried',
+    self: 'Self-employed',
+    contract: 'Contract',
+    unemployed: 'Unemployed',
+    urban: 'Urban',
+    semiurban: 'Semi-urban',
+    rural: 'Rural'
+  };
 
-  try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error("Prediction request failed.");
-    }
-
-    const result = await response.json();
-    const approved = result.prediction === "Approved";
-    const probability = result.approval_probability;
-    const probabilityPercent = typeof probability === "number"
-      ? Math.round(probability * 100)
-      : 0;
-
-    resultFinal.classList.remove("approved", "rejected");
-    resultFinal.classList.add(approved ? "approved" : "rejected");
-
-    resultIcon.classList.remove("neutral", "approve", "reject");
-    resultIcon.classList.add(approved ? "approve" : "reject");
-    resultIcon.textContent = approved ? "✓" : "✕";
-
-    resultTitle.textContent = approved ? "Likely Eligible" : "Likely Not Eligible";
-    probabilityValue.textContent = `${probabilityPercent}%`;
-    progressFill.style.width = `${probabilityPercent}%`;
-
-    summaryIncome.textContent = formatCurrency(payload.applicant_income);
-    summaryAmount.textContent = formatCurrency(payload.loan_amount);
-    summaryCredit.textContent = payload.credit_history;
-    summaryEmployment.textContent = payload.employment_status;
-
-    showState(resultFinal);
-  } catch (error) {
-    showState(resultError);
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = "Check Loan Eligibility";
+  function money(value) {
+    var n = Number(value);
+    if (!value || isNaN(n)) return '\u2014';
+    return '\u20B9' + n.toLocaleString('en-IN');
   }
-});
+
+  function emi(principal, months) {
+    if (!principal || !months) return 0;
+    var r = ANNUAL_RATE / 12;
+    return Math.round((principal * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1));
+  }
+
+  function readValues() {
+    return {
+      income: Number(el.income.value) || 0,
+      amount: Number(el.amount.value) || 0,
+      term: Number(el.term.value) || 0,
+      employment: el.employment.value,
+      area: el.area.value,
+      credit: state.credit
+    };
+  }
+
+  function apiEmployment(value) {
+    if (value === 'salaried') return 'Salaried';
+    if (value === 'unemployed') return 'Unemployed';
+    return 'Self-employed';
+  }
+
+  function payloadFromValues(v) {
+    return {
+      applicant_income: v.income,
+      loan_amount: v.amount,
+      loan_term: v.term,
+      credit_history: v.credit,
+      employment_status: apiEmployment(v.employment)
+    };
+  }
+
+  function syncUI() {
+    var v = readValues();
+    var filled = FIELDS.filter(function (k) {
+      return String(el[k].value) !== '';
+    }).length + (state.credit ? 1 : 0);
+    var pct = Math.round((filled / 6) * 100);
+
+    el.progressFill.style.width = pct + '%';
+    el.progressPct.textContent = pct + '%';
+
+    el.incomeHint.classList.remove('is-error');
+    el.amountHint.classList.remove('is-error');
+
+    el.incomeHint.textContent = v.income
+      ? 'About ' + money(v.income * 12) + ' a year'
+      : 'Gross income before deductions';
+
+    var monthly = emi(v.amount, v.term);
+    el.amountHint.textContent = monthly
+      ? 'Indicative EMI ' + money(monthly) + ' a month at 8.75% p.a.'
+      : 'Total principal requested';
+    el.emiLine.textContent = monthly ? 'EMI ' + money(monthly) + '/mo' : '';
+
+    el.sum.income.textContent = money(v.income);
+    el.sum.amount.textContent = money(v.amount);
+    el.sum.term.textContent = v.term ? (v.term / 12) + ' years' : '\u2014';
+    el.sum.employment.textContent = LABELS[v.employment] || '\u2014';
+    el.sum.area.textContent = LABELS[v.area] || '\u2014';
+    el.sum.credit.textContent = v.credit || '\u2014';
+  }
+
+  function clearResult() {
+    clearInterval(countTimer);
+    el.resultCard.classList.remove('is-approved', 'is-rejected');
+    el.resultBody.hidden = true;
+    el.resultEmpty.hidden = false;
+    el.gaugeArc.style.strokeDashoffset = 314;
+    el.confidenceValue.textContent = '0%';
+  }
+
+  function showResult(result) {
+    el.resultEmpty.hidden = true;
+    el.resultBody.hidden = false;
+    el.resultCard.classList.remove('is-approved', 'is-rejected');
+    el.resultCard.classList.add(result.approved ? 'is-approved' : 'is-rejected');
+
+    el.verdictPill.textContent = result.approved ? 'Likely approved' : 'Likely rejected';
+    el.verdictNote.textContent = result.note;
+
+    el.gaugeArc.style.transition = 'none';
+    el.gaugeArc.style.strokeDashoffset = 314;
+    void el.gaugeArc.getBoundingClientRect();
+    el.gaugeArc.style.transition = '';
+    el.gaugeArc.style.strokeDashoffset = 314 - (314 * result.confidence) / 100;
+
+    var shown = 0;
+    var step = Math.max(1, Math.round(result.confidence / 26));
+    clearInterval(countTimer);
+    countTimer = setInterval(function () {
+      shown += step;
+      if (shown >= result.confidence) {
+        shown = result.confidence;
+        clearInterval(countTimer);
+      }
+      el.confidenceValue.textContent = shown + '%';
+    }, 26);
+  }
+
+  function showError(message) {
+    showResult({
+      approved: false,
+      confidence: 0,
+      note: message || 'Please make sure the backend server is running and try again.'
+    });
+    el.verdictPill.textContent = 'Prediction unavailable';
+  }
+
+  function validate(v) {
+    var ok = true;
+    el.income.closest('.input-group').classList.toggle('is-error', !v.income);
+    el.amount.closest('.input-group').classList.toggle('is-error', !v.amount);
+    el.employment.classList.toggle('is-error', !v.employment);
+    el.term.classList.toggle('is-error', !v.term);
+    el.area.classList.toggle('is-error', !v.area);
+    document.querySelector('.choices').classList.toggle('is-error', !v.credit);
+
+    if (!v.income) {
+      el.incomeHint.textContent = 'Please enter applicant monthly income.';
+      el.incomeHint.classList.add('is-error');
+      ok = false;
+    }
+    if (!v.amount) {
+      el.amountHint.textContent = 'Please enter requested loan amount.';
+      el.amountHint.classList.add('is-error');
+      ok = false;
+    }
+    if (!v.employment || !v.term || !v.area || !v.credit) ok = false;
+    return ok;
+  }
+
+  function resultFromApi(data) {
+    var approved = data.prediction === 'Approved';
+    var probability = approved ? data.approval_probability : data.rejection_probability;
+    var confidence = Math.round((Number(probability) || 0) * 100);
+    var note = approved
+      ? 'The model found this profile likely eligible based on the submitted income, loan, term, employment, and credit history.'
+      : 'The model found this profile likely not eligible based on the submitted details.';
+
+    return {
+      approved: approved,
+      confidence: confidence,
+      note: data.note || note
+    };
+  }
+
+  el.form.addEventListener('input', function () {
+    clearResult();
+    syncUI();
+  });
+
+  el.form.addEventListener('change', function () {
+    clearResult();
+    syncUI();
+  });
+
+  el.choices.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      state.credit = btn.dataset.credit;
+      document.querySelector('.choices').classList.remove('is-error');
+      el.choices.forEach(function (b) { b.classList.toggle('is-active', b === btn); });
+      clearResult();
+      syncUI();
+    });
+  });
+
+  el.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (state.running) return;
+
+    var values = readValues();
+    if (!validate(values)) return;
+
+    state.running = true;
+    el.submitBtn.classList.add('is-running');
+    el.submitBtn.textContent = 'Running model...';
+    clearResult();
+
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadFromValues(values))
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('Prediction request failed.');
+        return response.json();
+      })
+      .then(function (data) {
+        showResult(resultFromApi(data));
+      })
+      .catch(function () {
+        showError('Please make sure the backend server is running and try again.');
+      })
+      .finally(function () {
+        state.running = false;
+        el.submitBtn.classList.remove('is-running');
+        el.submitBtn.textContent = 'Run prediction';
+      });
+  });
+
+  el.resetBtn.addEventListener('click', function () {
+    state.credit = '';
+    state.running = false;
+    el.choices.forEach(function (b) { b.classList.remove('is-active'); });
+    el.submitBtn.classList.remove('is-running');
+    el.submitBtn.textContent = 'Run prediction';
+    setTimeout(function () { clearResult(); syncUI(); }, 0);
+  });
+
+  syncUI();
+})();
